@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECHO — Acoustic Health Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>EC<span>H</span>O</h1>
+      <div class="sub">Personal acoustic baseline &amp; deviation monitoring — {{ user_id }}</div>
+    </div>
+    <div class="sub">All data stored locally · features only, no raw audio retained</div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Baseline Status</h2>
+      {% if baseline and baseline.is_usable() %}
+        <div class="stat-big">{{ n_calibration }} sessions</div>
+        <div class="stat-sub">Confidence: {{ (baseline.confidence()*100)|round|int }}%</div>
+        <div class="progress"><div style="width: {{ (baseline.confidence()*100)|round|int }}%"></div></div>
+      {% elif n_calibration > 0 %}
+        <div class="stat-big">{{ n_calibration }} sessions</div>
+        <div class="stat-sub">Collecting calibration data — baseline not yet usable</div>
+      {% else %}
+        <div class="empty-state">No calibration sessions yet. Run the guided calibration flow to build a personal baseline.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Latest Assessment</h2>
+      {% if latest and latest.deviation_json %}
+        {% set dj = latest.deviation_json %}
+        <div class="stat-big">{{ dj.overall_score | round(1) }} <span style="font-size:15px; color:var(--muted);">/ 100</span></div>
+        <div class="stat-sub">
+          {% if dj.flagged %}
+            <span class="badge danger">Deviation detected</span>
+          {% else %}
+            <span class="badge ok">Within personal baseline</span>
+          {% endif %}
+          &nbsp; · alert threshold {{ alert_threshold }}
+        </div>
+      {% else %}
+        <div class="empty-state">No assessment sessions yet.</div>
+      {% endif %}
+    </div>
+
+    <div class="card chart-card">
+      <h2>Longitudinal Deviation Trend</h2>
+      {% if chart_points %}
+        <canvas id="trendChart" height="90"></canvas>
+      {% else %}
+        <div class="empty-state">Trend will appear here once assessment sessions are recorded.</div>
+      {% endif %}
+    </div>
+
+    {% if latest_groups %}
+    <div class="card">
+      <h2>Latest Session — Signal Group Breakdown</h2>
+      <div class="group-bars">
+        {% for g, score in latest_groups.items() %}
+        <div class="group-bar-row">
+          <div>{{ g|capitalize }}</div>
+          <div class="group-bar-track">
+            <div class="group-bar-fill {% if score >= 45 %}high{% elif score >= 25 %}mid{% endif %}" style="width: {{ [score, 100]|min }}%"></div>
+          </div>
+          <div>{{ score }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="stat-sub" style="margin-top:10px;">Timing, energy, spectral shape, cepstral/timbre, and pitch, each scored 0–100 against this person's own baseline.</div>
+    </div>
+    {% endif %}
+
+    {% if latest_tasks %}
+    <div class="card">
+      <h2>Latest Session — Top Contributing Features</h2>
+      {% for task_key, tr in latest_tasks.items() %}
+        {% if tr.contributing_features %}
+        <div style="margin-bottom:10px;">
+          <b style="font-size:13px;">{{ task_key.replace('_',' ')|capitalize }}</b>
+          <ul class="contrib-list">
+            {% for c in tr.contributing_features[:3] %}
+            <li><b>{{ c.feature }}</b> — z = {{ c.z_score }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="card" style="grid-column: 1 / -1;">
+      <h2>Session Log</h2>
+      {% if assessments %}
+      <table>
+        <thead><tr><th>Date</th><th>Type</th><th>Score</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>
+          {% for s in assessments %}
+          <tr class="row-link" onclick="window.location='{{ url_for('session_detail', session_id=s.id, user=user_id) }}'">
+            <td>{{ s.created_at | dateformat }}</td>
+            <td>Assessment</td>
+            <td>{{ (s.deviation_json.overall_score | round(1)) if s.deviation_json else '—' }}</td>
+            <td>
+              {% if s.deviation_json and s.deviation_json.flagged %}
+                <span class="badge danger">Flagged</span>
+              {% else %}
+                <span class="badge ok">Normal</span>
+              {% endif %}
+            </td>
+            <td>{{ 'Questionnaire on file' if s.questionnaire_json else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">No sessions recorded yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="footnote">
+    ECHO is a research / early-change monitoring prototype. It compares this person's own recordings to their own prior recordings and does not diagnose, rule out, or treat any medical condition. If you're feeling unwell, please contact a healthcare professional.
+  </div>
+</div>
+
+<script>
+  const points = {{ chart_points | tojson }};
+  if (points.length) {
+    const ctx = document.getElementById('trendChart');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: points.map(p => p.date),
+        datasets: [
+          {
+            label: 'Session score',
+            data: points.map(p => p.overall),
+            borderColor: '#9fb8b0',
+            backgroundColor: 'transparent',
+            borderDash: [4,3],
+            pointBackgroundColor: points.map(p => p.flagged ? '#b3413a' : '#2f6f5e'),
+            pointRadius: 4,
+            tension: 0.2,
+          },
+          {
+            label: 'Trend (EWMA)',
+            data: points.map(p => p.ewma),
+            borderColor: '#2f6f5e',
+            backgroundColor: 'rgba(47,111,94,0.08)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 2,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { min: 0, max: 100, title: { display: true, text: 'Deviation score' } }
+        },
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+  }
+</script>
+</body>
+</html>

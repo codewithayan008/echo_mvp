@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECHO — Session Detail</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <a class="back-link" href="{{ url_for('index', user=user_id) }}">&larr; Back to dashboard</a>
+  <header class="top">
+    <div>
+      <h1>Session #{{ session.id }}</h1>
+      <div class="sub">{{ session.created_at | dateformat }} · {{ session.session_type|capitalize }}</div>
+    </div>
+    {% if session.deviation_json %}
+      {% if session.deviation_json.flagged %}
+        <span class="badge danger">Flagged</span>
+      {% else %}
+        <span class="badge ok">Normal</span>
+      {% endif %}
+    {% endif %}
+  </header>
+
+  {% if session.deviation_json %}
+  <div class="card" style="margin-bottom:16px;">
+    <h2>Overall Deviation Score</h2>
+    <div class="stat-big">{{ session.deviation_json.overall_score | round(1) }} / 100</div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <h2>Per-Task Breakdown</h2>
+    <table>
+      <thead><tr><th>Task</th><th>Composite Score</th><th>Status</th><th>Top contributing features</th></tr></thead>
+      <tbody>
+        {% for task_key, tr in session.deviation_json.tasks.items() %}
+        <tr>
+          <td>{{ task_key.replace('_',' ')|capitalize }}</td>
+          <td>{{ tr.composite_score | round(1) }}</td>
+          <td>{% if tr.flagged %}<span class="badge warn">Elevated</span>{% else %}<span class="badge ok">Normal</span>{% endif %}</td>
+          <td>
+            {% for c in tr.contributing_features[:3] %}
+              {{ c.feature }} (z={{ c.z_score }}){% if not loop.last %}, {% endif %}
+            {% else %}
+              —
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Contextual Questionnaire</h2>
+    {% if questionnaire_summary %}
+      <p>{{ questionnaire_summary }}</p>
+      <ul class="q-list">
+        {% for q in questions %}
+          {% set val = session.questionnaire_json.get(q.key) %}
+          {% if val is not none and val != "" %}
+            <li><b>{{ q.text }}</b><br>{{ val }}</li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        {% if session.deviation_json and session.deviation_json.flagged %}
+          This session was flagged, but no questionnaire has been completed yet.
+        {% else %}
+          Not applicable — this session was within the personal baseline, so no follow-up questionnaire was triggered.
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="footnote">
+    ECHO compares this recording only to this person's own prior recordings. It does not diagnose, rule out, or treat any medical condition.
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Core (works on a Raspberry Pi with no extra system packages beyond
+# the ones scipy itself needs)
+numpy
+scipy
+flask
+
+# Real microphone capture on-device (Raspberry Pi). Requires PortAudio:
+#   sudo apt-get install libportaudio2
+sounddevice
